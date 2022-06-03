@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"errors"
@@ -24,6 +25,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -122,11 +124,26 @@ func main() {
 		client, err := winrm.NewClientWithParameters(endpoint, user, pass, params)
 		check(err)
 
+		ctx, cancel := context.WithCancel(context.Background())
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt)
+		defer func() {
+			signal.Stop(c)
+			cancel()
+		}()
+		go func() {
+			select {
+			case <-c:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+
 		exitCode := 0
 		if isatty.IsTerminal(os.Stdin.Fd()) {
-			exitCode, err = client.Run(cmd, os.Stdout, os.Stderr)
+			exitCode, err = client.RunWithContext(ctx, cmd, os.Stdout, os.Stderr)
 		} else {
-			exitCode, err = client.RunWithInput(cmd, os.Stdout, os.Stderr, os.Stdin)
+			exitCode, err = client.RunWithContextWithInput(ctx, cmd, os.Stdout, os.Stderr, os.Stdin)
 		}
 		check(err)
 
